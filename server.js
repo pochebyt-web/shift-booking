@@ -1,18 +1,71 @@
-import http from 'node:http'; import fs from 'node:fs'; import path from 'node:path'; import {fileURLToPath} from 'node:url';
-const root=path.dirname(fileURLToPath(import.meta.url)), dbFile=path.join(root,'data.json');
-const seed={employees:[{id:1,code:'1001',name:'Иванов Иван',active:true},{id:2,code:'1002',name:'Петров Пётр',active:true},{id:3,code:'1003',name:'Сидорова Анна',active:true},{id:4,code:'1004',name:'Кузнецов Максим',active:true},{id:5,code:'1005',name:'Смирнова Ольга',active:true}],shifts:[{id:1,shift_date:'2026-10-01',start_time:'09:00',end_time:'21:00',capacity:2,active:true},{id:2,shift_date:'2026-10-01',start_time:'10:00',end_time:'22:00',capacity:3,active:true},{id:3,shift_date:'2026-10-02',start_time:'08:00',end_time:'20:00',capacity:2,active:true},{id:4,shift_date:'2026-10-02',start_time:'12:00',end_time:'00:00',capacity:2,active:true}],bookings:[]};
-if(!fs.existsSync(dbFile)) fs.writeFileSync(dbFile,JSON.stringify(seed,null,2));
-const read=()=>JSON.parse(fs.readFileSync(dbFile,'utf8')); const write=d=>fs.writeFileSync(dbFile,JSON.stringify(d,null,2));
-let queue=Promise.resolve(); const mutate=fn=>{queue=queue.then(()=>{const d=read(); const out=fn(d); write(d); return out}); return queue};
-const json=(res,code,obj)=>{res.writeHead(code,{'Content-Type':'application/json; charset=utf-8','Access-Control-Allow-Origin':'*'});res.end(JSON.stringify(obj))};
-const body=req=>new Promise((resolve,reject)=>{let s='';req.on('data',c=>s+=c);req.on('end',()=>{try{resolve(s?JSON.parse(s):{})}catch(e){reject(e)}})});
-function api(req,res,url){
- if(req.method==='GET'&&url.pathname==='/api/shifts'){const d=read(),eid=Number(url.searchParams.get('employee_id')||0);const a=d.shifts.filter(s=>s.active).map(s=>{const bs=d.bookings.filter(b=>b.shift_id===s.id),mine=bs.some(b=>b.employee_id===eid);return {...s,booked:bs.length,remaining:s.capacity-bs.length,mine}}).filter(s=>s.remaining>0||s.mine);return json(res,200,a)}
- if(req.method==='GET'&&url.pathname==='/api/admin'){const d=read();const shifts=d.shifts.map(s=>{const booked=d.bookings.filter(b=>b.shift_id===s.id).length;return {...s,booked,remaining:s.capacity-booked}});const bookings=d.bookings.map(b=>{const e=d.employees.find(x=>x.id===b.employee_id),s=d.shifts.find(x=>x.id===b.shift_id);return {...b,code:e?.code,name:e?.name,shift_date:s?.shift_date,start_time:s?.start_time,end_time:s?.end_time}});return json(res,200,{shifts,bookings})}
- if(req.method==='POST'&&url.pathname==='/api/login')return body(req).then(x=>{const d=read(),e=d.employees.find(e=>e.code===String(x.code||'').trim()&&e.active);return e?json(res,200,e):json(res,401,{error:'Персональный код не найден'})});
- if(req.method==='POST'&&url.pathname==='/api/book')return body(req).then(x=>mutate(d=>{const eid=Number(x.employee_id),sid=Number(x.shift_id);if(d.bookings.some(b=>b.employee_id===eid&&b.shift_id===sid))throw Error('Вы уже записаны на эту смену');const s=d.shifts.find(s=>s.id===sid&&s.active);if(!s)throw Error('Смена недоступна');if(d.bookings.filter(b=>b.shift_id===sid).length>=s.capacity)throw Error('Все места на эту смену уже заняты');d.bookings.push({id:Date.now(),employee_id:eid,shift_id:sid,created_at:new Date().toISOString()});return {ok:true}})).then(x=>json(res,200,x)).catch(e=>json(res,409,{error:e.message}));
- if(req.method==='POST'&&url.pathname==='/api/cancel')return body(req).then(x=>mutate(d=>{const before=d.bookings.length;d.bookings=d.bookings.filter(b=>!(b.employee_id===Number(x.employee_id)&&b.shift_id===Number(x.shift_id)));if(d.bookings.length===before)throw Error('Запись не найдена');return {ok:true}})).then(x=>json(res,200,x)).catch(e=>json(res,404,{error:e.message}));
- if(req.method==='POST'&&url.pathname==='/api/admin/shifts')return body(req).then(x=>mutate(d=>{if(!x.shift_date||!x.start_time||!x.end_time||Number(x.capacity)<1)throw Error('Заполните все поля');const id=Math.max(0,...d.shifts.map(s=>s.id))+1;d.shifts.push({id,shift_date:x.shift_date,start_time:x.start_time,end_time:x.end_time,capacity:Number(x.capacity),active:true});return {id}})).then(x=>json(res,200,x)).catch(e=>json(res,400,{error:e.message}));
- return false;
-}
-const server=http.createServer((req,res)=>{const u=new URL(req.url,'http://localhost');if(u.pathname.startsWith('/api/')){if(!api(req,res,u))json(res,404,{error:'Not found'});return}let p=u.pathname==='/'?'/public/index.html':u.pathname; p=path.join(root,p); if(!p.startsWith(root)||!fs.existsSync(p))return json(res,404,{error:'Not found'});const ext=path.extname(p),types={'.html':'text/html; charset=utf-8','.js':'text/javascript; charset=utf-8','.css':'text/css; charset=utf-8'};res.writeHead(200,{'Content-Type':types[ext]||'application/octet-stream'});fs.createReadStream(p).pipe(res)});server.listen(3000,()=>console.log('http://localhost:3000'));
+import express from "express";
+
+const app = express();
+app.use(express.json());
+app.use(express.static("public"));
+
+const employees = new Map([
+  ["1001", { id: 1, code: "1001", name: "Иванов Иван" }],
+  ["1002", { id: 2, code: "1002", name: "Петров Петр" }],
+  ["1003", { id: 3, code: "1003", name: "Сидорова Анна" }]
+]);
+
+const shifts = [
+  { id: 1, date: "2026-10-01", start: "10:00", end: "14:00", capacity: 3 },
+  { id: 2, date: "2026-10-01", start: "14:00", end: "18:00", capacity: 2 },
+  { id: 3, date: "2026-10-02", start: "09:00", end: "13:00", capacity: 4 }
+];
+
+const bookings = [];
+
+app.get("/api/health", (req, res) => res.json({ ok: true }));
+
+app.post("/api/login", (req, res) => {
+  const employee = employees.get(String(req.body?.code || "").trim());
+  if (!employee) return res.status(401).json({ ok: false, error: "Код не найден." });
+  res.json({ ok: true, employee });
+});
+
+app.get("/api/shifts", (req, res) => {
+  res.json({
+    ok: true,
+    shifts: shifts.map(s => {
+      const booked = bookings.filter(b => b.shiftId === s.id && b.status === "active").length;
+      return { ...s, booked, remaining: Math.max(0, s.capacity - booked), available: booked < s.capacity };
+    })
+  });
+});
+
+app.post("/api/book", (req, res) => {
+  const employeeId = Number(req.body?.employeeId);
+  const shiftId = Number(req.body?.shiftId);
+  const employee = [...employees.values()].find(e => e.id === employeeId);
+  const shift = shifts.find(s => s.id === shiftId);
+
+  if (!employee || !shift) return res.status(400).json({ ok: false, error: "Сотрудник или смена не найдены." });
+
+  if (bookings.some(b => b.employeeId === employeeId && b.shiftId === shiftId && b.status === "active")) {
+    return res.status(409).json({ ok: false, error: "Вы уже записаны на эту смену." });
+  }
+
+  const booked = bookings.filter(b => b.shiftId === shiftId && b.status === "active").length;
+  if (booked >= shift.capacity) {
+    return res.status(409).json({ ok: false, error: "Свободных мест больше нет." });
+  }
+
+  bookings.push({ id: bookings.length + 1, employeeId, shiftId, status: "active", createdAt: new Date().toISOString() });
+  res.json({ ok: true, message: "Вы успешно записались на смену." });
+});
+
+app.get("/api/my-bookings", (req, res) => {
+  const employeeId = Number(req.query.employeeId);
+  const result = bookings
+    .filter(b => b.employeeId === employeeId && b.status === "active")
+    .map(b => ({ ...b, shift: shifts.find(s => s.id === b.shiftId) }));
+  res.json({ ok: true, bookings: result });
+});
+
+const port = process.env.PORT || 3000;
+if (process.env.VERCEL !== "1") app.listen(port, () => console.log("Listening on " + port));
+
+export default app;

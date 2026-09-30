@@ -1,1 +1,15 @@
-{"name":"shift-booking-prototype","version":"1.0.0","private":true,"type":"module","scripts":{"start":"node server.js"}}
+{
+  "name": "shift-booking",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "engines": {
+    "node": ">=22"
+  },
+  "dependencies": {
+    "express": "^5.1.0"
+  }
+}
