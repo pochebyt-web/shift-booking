@@ -4,12 +4,8 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "start": "node server.js"
+    "build": "echo Cloudflare Worker",
+    "deploy": "wrangler deploy"
   },
-  "engines": {
-    "node": ">=22"
-  },
-  "dependencies": {
-    "express": "^5.1.0"
-  }
+  "dependencies": {}
 }
